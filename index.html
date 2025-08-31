@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Наши контакты</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: url("assets/background.jpg") no-repeat center center fixed;
+      background-size: cover;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.85);
+      margin: 20px;
+      padding: 20px;
+      border-radius: 20px;
+      max-width: 500px;
+      margin-left: auto;
+      margin-right: auto;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    .logo img {
+      max-width: 200px;
+      height: auto;
+      margin-bottom: 20px;
+    }
+    h2 {
+      margin: 15px 0;
+      font-size: 1.5em;
+      color: #333;
+    }
+    .btn {
+      display: block;
+      width: 90%;
+      margin: 10px auto;
+      padding: 15px;
+      font-size: 1.2em;
+      text-decoration: none;
+      color: #000;
+      background: #fff;
+      border-radius: 30px;
+      border: 2px solid #ccc;
+      transition: 0.3s;
+      cursor: pointer;
+    }
+    .btn:hover {
+      background: #f0f0f0;
+      border-color: #888;
+    }
+    @media (max-width: 600px) {
+      .btn {
+        font-size: 1em;
+        padding: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <img src="assets/logo.png" alt="Логотип">
+    </div>
+    <h2>Наши контакты</h2>
+    
+    <button class="btn" onclick="openExternal('https://wa.me/123456789')">WhatsApp</button>
+    <button class="btn" onclick="openExternal('https://t.me/username')">Telegram</button>
+    <button class="btn" onclick="openExternal('https://example.com')">Сайт</button>
+  </div>
+
+  <script>
+    function openExternal(url) {
+      const ua = navigator.userAgent;
+      if (/Android/i.test(ua)) {
+        const intentUrl = "intent://" + url.replace(/^https?:\/\//,'') +
+          "#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=" +
+          encodeURIComponent(url) + ";end";
+        window.location.href = intentUrl;
+      } else {
+        window.open(url, "_blank");
+      }
+    }
+  </script>
+</body>
+</html>
