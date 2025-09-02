@@ -13,7 +13,7 @@
       background-size: cover;
     }
     .overlay {
-      background-color: rgba(255, 255, 255, 0.5); /* Прозрачность блока */
+      background-color: rgba(255, 255, 255, 0.5);
       border-radius: 20px;
       max-width: 400px;
       margin: 40px auto;
@@ -44,6 +44,7 @@
       font-size: 18px;
       font-weight: bold;
       transition: 0.3s;
+      cursor: pointer;
     }
     .button:hover {
       background: #f0f0f0;
@@ -55,9 +56,39 @@
   <div class="overlay">
     <img src="images/logo.png" alt="Логотип" class="logo">
     <h2>Наши контакты</h2>
-    <a href="go-whatsapp.html" target="_blank" class="button">WhatsApp</a>
-    <a href="go-telegram.html" target="_blank" class="button">Telegram</a>
-    <a href="go-site.html" target="_blank" class="button">Сайт</a>
+
+    <button class="button" onclick="openLink('https://wa.me/77001234567')">WhatsApp</button>
+    <button class="button" onclick="openLink('https://t.me/username')">Telegram</button>
+    <button class="button" onclick="openLink('https://tone.affomelody.com/click?pid=121544&offer_id=25&sub1=WA')">Сайт</button>
   </div>
+
+  <script>
+    function openLink(targetUrl) {
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+      if (isAndroid) {
+        let formattedUrl = targetUrl;
+        if (!targetUrl.startsWith("https://") && !targetUrl.startsWith("http://")) {
+          formattedUrl = "https://" + targetUrl;
+        }
+        // Принудительно открываем в Chrome
+        window.location.href =
+          `intent://${formattedUrl.replace('https://', '')}#Intent;scheme=https;package=com.android.chrome;end`;
+      } else if (isIOS) {
+        // Пытаемся Safari
+        window.location.href = `x-safari-${targetUrl}`;
+      } else {
+        // Обычный переход
+        window.location.href = targetUrl;
+      }
+    }
+
+    function copyLink(link) {
+      navigator.clipboard.writeText(link).then(() => {
+        alert("Ссылка скопирована! Откройте её вручную в браузере.");
+      });
+    }
+  </script>
 </body>
 </html>
