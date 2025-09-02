@@ -9,80 +9,55 @@
       margin: 0;
       padding: 0;
       font-family: Arial, sans-serif;
-      text-align: center;
-      background: url("assets/e44b411f1565cc7eee8085349f18ae62.jpg") no-repeat center center fixed;
+      background: url("images/background.jpg") no-repeat center center fixed;
       background-size: cover;
     }
-    .container {
-      background: rgba(255, 255, 255, 0.5);
-      margin: 20px;
-      padding: 20px;
+    .overlay {
+      background-color: rgba(255, 255, 255, 0.5); /* Прозрачность блока */
       border-radius: 20px;
-      max-width: 500px;
-      margin-left: auto;
-      margin-right: auto;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      max-width: 400px;
+      margin: 40px auto;
+      padding: 20px;
+      text-align: center;
     }
-    .logo img {
+    .logo {
       max-width: 200px;
-      height: auto;
-      margin-bottom: 20px;
+      margin: 0 auto 20px;
+      display: block;
+      border-radius: 12px;
     }
     h2 {
-      margin: 15px 0;
-      font-size: 1.5em;
+      margin-bottom: 20px;
       color: #333;
     }
-    .btn {
+    .button {
       display: block;
-      width: 90%;
-      margin: 10px auto;
+      margin: 15px auto;
       padding: 15px;
-      font-size: 1.2em;
-      text-decoration: none;
-      color: #000;
-      background: #fff;
-      border-radius: 30px;
+      width: 80%;
+      max-width: 280px;
+      background: white;
+      color: #333;
       border: 2px solid #ccc;
+      border-radius: 30px;
+      text-decoration: none;
+      font-size: 18px;
+      font-weight: bold;
       transition: 0.3s;
-      cursor: pointer;
     }
-    .btn:hover {
+    .button:hover {
       background: #f0f0f0;
-      border-color: #888;
-    }
-    @media (max-width: 600px) {
-      .btn {
-        font-size: 1em;
-        padding: 12px;
-      }
+      border-color: #999;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="logo">
-      <img src="assets/b873b7db2db74a90c00a79882bc2d737.jpg" alt="Логотип">
-    </div>
+  <div class="overlay">
+    <img src="images/logo.png" alt="Логотип" class="logo">
     <h2>Наши контакты</h2>
-    
-    <button class="btn" onclick="openExternal('https://wa.me/123456789')">WhatsApp</button>
-    <button class="btn" onclick="openExternal('https://t.me/username')">Telegram</button>
-    <button class="btn" onclick="openExternal('https://example.com')">Сайт</button>
+    <a href="go-whatsapp.html" target="_blank" class="button">WhatsApp</a>
+    <a href="go-telegram.html" target="_blank" class="button">Telegram</a>
+    <a href="go-site.html" target="_blank" class="button">Сайт</a>
   </div>
-
-  <script>
-    function openExternal(url) {
-      const ua = navigator.userAgent;
-      if (/Android/i.test(ua)) {
-        const intentUrl = "intent://" + url.replace(/^https?:\/\//,'') +
-          "#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=" +
-          encodeURIComponent(url) + ";end";
-        window.location.href = intentUrl;
-      } else {
-        window.open(url, "_blank");
-      }
-    }
-  </script>
 </body>
 </html>
