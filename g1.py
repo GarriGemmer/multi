@@ -124,6 +124,7 @@ TEXTS = {
         "new_user_admin": "📥 नया उपयोगकर्ता सक्रियण के लिए:\n@{uname}\nID: {uid}\nभाषा: {lang}\nसमय: {time}"
     }
 }
+
 # -------------------- Состояния (в памяти) --------------------
 # user_lang: хранит выбранный язык пользователя (по user_id)
 user_lang: Dict[int, str] = {}
@@ -461,7 +462,7 @@ async def pair_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.delete()
     except Exception:
         pass
-   context.user_data["chosen_pair"] = pair
+    context.user_data["chosen_pair"] = pair
     await send_stage_photo_or_text(context, uid, "timeframes.jpg", TEXTS[lang]["choose_tf"], reply_markup=kb_timeframes())
 
 async def tf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
