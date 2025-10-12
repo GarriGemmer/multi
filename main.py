@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Dict, Optional
 
 import aiohttp
+import threading
+from aiohttp import web
 from dotenv import load_dotenv
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
@@ -310,6 +312,17 @@ async def choose_tf(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         txt,
         markup=InlineKeyboardMarkup([[InlineKeyboardButton(new_forecast, callback_data="try_free")]])
         )
+
+async def healthcheck(request):
+    return web.Response(text="Bot is running!")
+
+def start_webserver():
+    app = web.Application()
+    app.add_routes([web.get("/", healthcheck)])
+    web.run_app(app, port=int(os.environ.get("PORT", 10000)))
+
+threading.Thread(target=start_webserver, daemon=True).start()
+
 # ---------- MAIN ----------
 def main():
     global allowed, free_uses
