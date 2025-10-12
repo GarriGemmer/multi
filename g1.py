@@ -2,21 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-goplus_bot_full.py
-Полнофункциональный бот с многослойным онбордингом, мультиязычностью,
-локальными картинками по этапам, ручной авторизацией админом (ADMIN_ID),
-20 пар и 15 таймфреймов, анимацией анализа и финальным текстовым прогнозом.
-Работает без matplotlib, совместим с Termux.
+multi_lang_trading_bot.py
 """
 
 import os
 import json
-import logging
 import random
 import asyncio
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Dict, Optional
 
+import aiohttp
 from dotenv import load_dotenv
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
@@ -26,605 +22,311 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters
 )
 
-# -------------------- Конфигурация --------------------
+# ---------- CONFIG ----------
 load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")  # поставь токен в .env или прямо сюда
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7167007722"))
 
-# Папка с картинками (локальные)
 PHOTO_DIR = "photo"
 os.makedirs(PHOTO_DIR, exist_ok=True)
+FREE_LIMIT = 3
+ALLOWED_FILE = "allowed.json"
+FREE_FILE = "free_uses.json"
 
-# Файл для хранения разрешённых пользователей
-ALLOWED_FILE = "allowed_users.json"
-
-# Логирование
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("goplus_bot")
-
-# -------------------- Контент и тексты --------------------
-TRADE_PAIRS = [
-    "EUR/USD", "USD/JPY", "GBP/USD", "USD/CHF", "AUD/USD",
-    "USD/CAD", "NZD/USD", "EUR/JPY", "GBP/JPY", "EUR/GBP",
-    "BTC/USD", "ETH/USD", "LTC/USD", "XAU/USD", "XAG/USD",
-    "USD/TRY", "USD/ZAR", "EUR/CHF", "GBP/CHF", "AUD/JPY",
-]
-
-TIMEFRAMES = [
-    "15 sec", "30 sec", "1 min", "2 min", "5 min", "10 min", "15 min", "30 min",
-    "1 hour", "2 hours", "4 hours", "8 hours", "12 hours", "1 day", "1 week"
-]
-
-# Тексты мультиязычные (rus/en/hi)
+# ---------- LANG TEXTS ----------
 TEXTS = {
     "ru": {
         "choose_lang": "Выбери язык:",
-        "welcome_btn": "🔵 ACTIVE",
         "welcome": "👋 Привет! Я — Go Plus, твой персональный торговый бот.",
-        "why_btn": "Почему это работает",
-        "how_btn": "Как это работает",
-        "gpt_btn": "О боте",
-        "register": "⚡ Чтобы получить доступ, зарегистрируйся по ссылке и дождись активации админом.",
-        "limited": "🔒 Доступ ограничен. Ожидайте активации администратором.",
-        "access_granted": "✅ Доступ активирован! Выберите торговую пару.",
-        "choose_pair": "📊 Выберите торговую пару:",
-        "choose_tf": "⏱ Выберите таймфрейм:",
-        "processing_step1": "🔄 Получаю рыночные данные...",
-        "processing_step2": "⚙️ Вычисляю индикаторы (SMA, RSI, MACD)...",
-        "processing_step3": "🔍 Анализирую корреляции и объёмы...",
-        "processing_done": "✅ Анализ завершён!",
-        "result_header": "📈 Результат анализа — {pair} ({tf})",
-        "result_body": "Signal: {signal}\nConfidence: {conf}%\n\nIndicators:\nSMA short: {sma_s}\nSMA long: {sma_l}\nRSI: {rsi}\nMACD: {macd}\nVolume trend: {vol}",
-        "back": "⬅️ НАЗАД",
-        "ask_write_admin": "После регистрации админу автоматически отправлен ваш ID для активации.",
-        "new_user_admin": "📥 Новый пользователь ожидает активации:\n@{uname}\nID: {uid}\nЯзык: {lang}\nВремя: {time}"
+        "why": "Почему это работает: бот использует реальные данные Binance и технический анализ.",
+        "how": "Как это работает: выбираешь пару и таймфрейм, я провожу анализ и выдаю прогноз.",
+        "about": "О боте: создан для помощи трейдерам принимать решения на основе данных.",
+        "register": "⚡ Чтобы получить полный доступ, зарегистрируйся и дождись активации.",
+        "limited": "🔒 Доступ ограничен. Зарегистрируйся для неограниченного использования.",
+        "access_granted": "✅ Доступ активирован! Выбери валютную пару.",
+        "free_left": "Осталось бесплатных прогнозов: {n}",
+        "pair": "📊 Выбери торговую пару:",
+        "tf": "⏱ Выбери таймфрейм:",
+        "processing": ["🔄 Получаю данные Binance...",
+                       "⚙️ Анализирую индикаторы (RSI, MACD)...",
+                       "📊 Формирую прогноз..."],
+        "result": "📈 Прогноз для {pair} ({tf}):\n\n📊 Направление: {signal}\nДостоверность: {conf}%\n\nПричина: {reason}",
+        "reg_btns": [
+            ("🌐 Регистрация", "https://example.com/register"),
+            ("✅ Зарегистрировался", "registered_ok"),
+            ("💬 Написать мне", "https://t.me/yourprofile"),
+            ("📢 Наш канал", "https://t.me/yourchannel"),
+            ("🎁 Попробовать бесплатно", "try_free")
+        ],
     },
     "en": {
         "choose_lang": "Choose your language:",
-        "welcome_btn": "🔵 ACTIVE",
-        "welcome": "👋 Hi! I'm Go Plus — your trading assistant.",
-        "why_btn": "Why it works",
-        "how_btn": "How it works",
-        "gpt_btn": "About bot",
-        "register": "⚡ To get access, register via the link and wait for admin activation.",
-        "limited": "🔒 Access restricted. Wait for admin activation.",
+        "welcome": "👋 Hi! I'm Go Plus — your personal trading assistant.",
+        "why": "Why it works: the bot uses real Binance data and technical indicators.",
+        "how": "How it works: choose a pair and timeframe, I’ll analyze and show a forecast.",
+        "about": "About: built to help traders make data-driven decisions.",
+        "register": "⚡ To get full access, register and wait for admin activation.",
+        "limited": "🔒 Access restricted. Register to unlock full access.",
         "access_granted": "✅ Access granted! Choose a trading pair.",
-        "choose_pair": "📊 Choose trading pair:",
-        "choose_tf": "⏱ Choose timeframe:",
-        "processing_step1": "🔄 Fetching market data...",
-        "processing_step2": "⚙️ Calculating indicators (SMA, RSI, MACD)...",
-        "processing_step3": "🔍 Checking correlations and volume...",
-        "processing_done": "✅ Analysis complete!",
-        "result_header": "📈 Analysis result — {pair} ({tf})",
-        "result_body": "Signal: {signal}\nConfidence: {conf}%\n\nIndicators:\nSMA short: {sma_s}\nSMA long: {sma_l}\nRSI: {rsi}\nMACD: {macd}\nVolume trend: {vol}",
-        "back": "⬅️ BACK",
-        "ask_write_admin": "After registration your ID was sent to admin for activation.",
-        "new_user_admin": "📥 New user pending activation:\n@{uname}\nID: {uid}\nLang: {lang}\nTime: {time}"
+        "free_left": "Free forecasts left: {n}",
+        "pair": "📊 Choose trading pair:",
+        "tf": "⏱ Choose timeframe:",
+        "processing": ["🔄 Fetching Binance data...",
+                       "⚙️ Calculating indicators...",
+                       "📊 Generating forecast..."],
+        "result": "📈 Forecast for {pair} ({tf}):\n\n📊 Direction: {signal}\nConfidence: {conf}%\n\nReason: {reason}",
+        "reg_btns": [
+            ("🌐 Register", "https://example.com/register"),
+            ("✅ I Registered", "registered_ok"),
+            ("💬 Message me", "https://t.me/yourprofile"),
+            ("📢 Our channel", "https://t.me/yourchannel"),
+            ("🎁 Try free", "try_free")
+        ],
     },
     "hi": {
         "choose_lang": "भाषा चुनें:",
-        "welcome_btn": "🔵 ACTIVE",
         "welcome": "👋 नमस्ते! मैं Go Plus हूँ — आपका ट्रेडिंग असिस्टेंट।",
-        "why_btn": "यह क्यों काम करता है",
-        "how_btn": "यह कैसे काम करता है",
-        "gpt_btn": "बॉट के बारे में",
-        "register": "⚡ एक्सेस पाने के लिए रजिस्टर करें और एडमिन की पुष्टि का इंतजार करें।",
-        "limited": "🔒 एक्सेस प्रतिबंधित है। एडमिन की पुष्टि का इंतजार करें।",
+        "why": "यह क्यों काम करता है: बॉट Binance डेटा और तकनीकी विश्लेषण का उपयोग करता है।",
+        "how": "यह कैसे काम करता है: जोड़ी और टाइमफ्रेम चुनें, मैं विश्लेषण करूँगा।",
+        "about": "बॉट के बारे में: ट्रेडर्स को डेटा-आधारित निर्णय लेने में मदद करता है।",
+        "register": "⚡ पूर्ण एक्सेस पाने के लिए रजिस्टर करें और एडमिन की पुष्टि का इंतजार करें।",
+        "limited": "🔒 एक्सेस सीमित है। पूर्ण एक्सेस के लिए रजिस्टर करें।",
         "access_granted": "✅ एक्सेस स्वीकृत! ट्रेडिंग जोड़ी चुनें।",
-        "choose_pair": "📊 ट्रेडिंग जोड़ी चुनें:",
-        "choose_tf": "⏱ टाइमफ्रेम चुनें:",
-        "processing_step1": "🔄 मार्केट डेटा ले रहा हूँ...",
-        "processing_step2": "⚙️ इंडिकेटर्स (SMA, RSI, MACD) गणना कर रहा हूँ...",
-        "processing_step3": "🔍 कोरिलेशन और वॉल्यूम जाँच रहा हूँ...",
-        "processing_done": "✅ विश्लेषण पूरा!",
-        "result_header": "📈 विश्लेषण — {pair} ({tf})",
-        "result_body": "Signal: {signal}\nConfidence: {conf}%\n\nIndicators:\nSMA short: {sma_s}\nSMA long: {sma_l}\nRSI: {rsi}\nMACD: {macd}\nVolume trend: {vol}",
-        "back": "⬅️ वापस",
-        "ask_write_admin": "रजिस्ट्रेशन के बाद आपका ID एडमिन को भेज दिया गया।",
-        "new_user_admin": "📥 नया उपयोगकर्ता सक्रियण के लिए:\n@{uname}\nID: {uid}\nभाषा: {lang}\nसमय: {time}"
+        "free_left": "मुफ़्त भविष्यवाणियाँ बची हैं: {n}",
+        "pair": "📊 ट्रेडिंग जोड़ी चुनें:",
+        "tf": "⏱ टाइमफ्रेम चुनें:",
+        "processing": ["🔄 Binance डेटा ले रहा हूँ...",
+                       "⚙️ इंडिकेटर्स विश्लेषण...",
+                       "📊 प्रेडिक्शन बना रहा हूँ..."],
+        "result": "📈 {pair} ({tf}) के लिए प्रेडिक्शन:\n\n📊 दिशा: {signal}\nविश्वास: {conf}%\n\nकारण: {reason}",
+        "reg_btns": [
+            ("🌐 रजिस्ट्रेशन", "https://example.com/register"),
+            ("✅ रजिस्टर हो गया", "registered_ok"),
+            ("💬 मुझसे बात करें", "https://t.me/yourprofile"),
+            ("📢 हमारा चैनल", "https://t.me/yourchannel"),
+            ("🎁 मुफ़्त में आज़माएँ", "try_free")
+        ],
     }
 }
 
-# -------------------- Состояния (в памяти) --------------------
-# user_lang: хранит выбранный язык пользователя (по user_id)
+PAIRS = ["BTCUSDT", "ETHUSDT", "EURUSD", "GBPUSD", "USDJPY", "USDCAD", "AUDUSD", "NZDUSD", "XAUUSD", "XAGUSD", "EURJPY", "GBPJPY", "USDCHF", "EURGBP", "AUDJPY"]
+TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d", "1w", "1M", "12h", "30m"]
+
+# ---------- STATE ----------
 user_lang: Dict[int, str] = {}
-# allowed users set (persist)
-allowed_users = set()
+allowed = set()
+free_uses: Dict[int, int] = {}
 
-# -------------------- Файловые утилиты --------------------
-def load_allowed():
-    global allowed_users
-    if os.path.exists(ALLOWED_FILE):
+# ---------- UTILS ----------
+def load_json(path, default):
+    if os.path.exists(path):
         try:
-            with open(ALLOWED_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                allowed_users = set(data.get("allowed", []))
-        except Exception as e:
-            logger.warning("Не удалось загрузить allowed_users.json: %s", e)
-            allowed_users = set()
-    else:
-        allowed_users = set()
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+    return default
 
-def save_allowed():
-    try:
-        with open(ALLOWED_FILE, "w", encoding="utf-8") as f:
-            json.dump({"allowed": list(allowed_users)}, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error("Ошибка записи allowed_users.json: %s", e)
+def save_json(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-# -------------------- Помощники по картинкам и отправкам --------------------
-def photo_path(name: str) -> Optional[str]:
-    """
-    Возвращает путь к фото в папке photo, если существует, иначе None
-    """
+def photo(name):
     p = os.path.join(PHOTO_DIR, name)
     return p if os.path.exists(p) else None
 
-async def send_stage_photo_or_text(context: ContextTypes.DEFAULT_TYPE, chat_id: int,
-                                   photo_name: str, text: str,
-                                   reply_markup: Optional[InlineKeyboardMarkup] = None,
-                                   delete_message_id: Optional[int] = None):
-    """
-    Отправляет локальную картинку (если есть) с подписью или просто текст.
-    Удаляет старое сообщение, если указан delete_message_id.
-    Возвращает объект Message (или None).
-    """
-    try:
-        if delete_message_id:
-            # пробуем удалить предыдущее сообщение (мягко)
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=delete_message_id)
-            except Exception:
-                pass
+async def send_photo_or_text(context, chat_id, fname, text, markup=None, delete_id=None):
+    if delete_id:
+        try: await context.bot.delete_message(chat_id, delete_id)
+        except: pass
+    p = photo(fname)
+    if p:
+        with open(p, "rb") as f:
+            return await context.bot.send_photo(chat_id, f, caption=text, reply_markup=markup)
+    else:
+        return await context.bot.send_message(chat_id, text, reply_markup=markup)
 
-        p = photo_path(photo_name)
-        if p:
-            with open(p, "rb") as f:
-                msg = await context.bot.send_photo(chat_id=chat_id, photo=InputFile(f),
-                                                   caption=text, reply_markup=reply_markup)
-            return msg
+# ---------- ADMIN ----------
+async def cmd_allow(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return await update.message.reply_text("Only admin.")
+    if not ctx.args: return await update.message.reply_text("/allow <id>")
+    uid = int(ctx.args[0])
+    allowed.add(uid)
+    save_json(ALLOWED_FILE, list(allowed))
+    lang = user_lang.get(uid, "en")
+    await send_photo_or_text(ctx, uid, "pairs.jpg", TEXTS[lang]["access_granted"], markup=kb_pairs(lang))
+    await update.message.reply_text(f"User {uid} allowed ✅")
+
+# ---------- ONBOARDING ----------
+def kb_lang():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
+         InlineKeyboardButton("🇮🇳 हिन्दी", callback_data="lang_hi"),
+         InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")]
+    ])
+
+def kb_next(cb): return InlineKeyboardMarkup([[InlineKeyboardButton("➡️", callback_data=cb)]])
+
+def kb_register(lang):
+    btns = []
+    for text, data in TEXTS[lang]["reg_btns"]:
+        if data.startswith("http"):
+            btns.append([InlineKeyboardButton(text, url=data)])
         else:
-            msg = await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
-            return msg
-    except Exception as e:
-        logger.exception("send_stage_photo_or_text error: %s", e)
-        # fallback text
-        try:
-            return await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
-        except Exception:
-            return None
+            btns.append([InlineKeyboardButton(text, callback_data=data)])
+    return InlineKeyboardMarkup(btns)
 
-# -------------------- Клавиатуры --------------------
-def kb_start():
-    return InlineKeyboardMarkup([[InlineKeyboardButton(TEXTS["ru"]["welcome_btn"], callback_data="activate")]])
-
-def kb_language():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"),
-         InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"),
-         InlineKeyboardButton("🇮🇳 हिन्दी", callback_data="lang_hi")]
-    ])
-
-def kb_welcome_actions(lang: str):
-    t = TEXTS[lang]
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(t["how_btn"], callback_data="show_how")],
-        [InlineKeyboardButton(t["why_btn"], callback_data="show_why")],
-        [InlineKeyboardButton(t["gpt_btn"], callback_data="show_gpt")],
-        [InlineKeyboardButton("Register", callback_data="show_register")]
-    ])
-
-def kb_after_register(lang: str):
-    t = TEXTS[lang]
-    return InlineKeyboardMarkup([[InlineKeyboardButton(t["back"], callback_data="back_home")]])
-
-def kb_pairs():
+def kb_pairs(lang):
     kb = []
-    # 4 в строке — компактно
-    for i in range(0, len(TRADE_PAIRS), 4):
-        row = [InlineKeyboardButton(p, callback_data=f"pair|{p}") for p in TRADE_PAIRS[i:i+4]]
+    for i in range(0, len(PAIRS), 3):
+        row = [InlineKeyboardButton(p, callback_data=f"pair|{p}") for p in PAIRS[i:i+3]]
         kb.append(row)
-    kb.append([InlineKeyboardButton(TEXTS["ru"]["back"], callback_data="back_home")])
     return InlineKeyboardMarkup(kb)
 
-def kb_timeframes():
+def kb_tfs(lang):
     kb = []
     for i in range(0, len(TIMEFRAMES), 5):
-        row = [InlineKeyboardButton(tf, callback_data=f"tf|{tf}") for tf in TIMEFRAMES[i:i+5]]
-        kb.append(row)
-    kb.append([InlineKeyboardButton(TEXTS["ru"]["back"], callback_data="back_pairs")])
+        kb.append([InlineKeyboardButton(t, callback_data=f"tf|{t}") for t in TIMEFRAMES[i:i+5]])
     return InlineKeyboardMarkup(kb)
 
-# -------------------- Обработчики команд --------------------
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/start — показ GIF/баннера и кнопки ACTIVE"""
-    user = update.effective_user
-    # по умолчанию язык русский, можно менять позже
-    user_lang[user.id] = "ru"
-    # отправляем баннер + кнопка ACTIVE
-    text = TEXTS["ru"]["choose_lang"]
-    # use lang photo if exists
-    msg = await send_stage_photo_or_text(context, user.id, "lang.jpg", text, reply_markup=kb_language())
-    # nothing more here
+async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    user_lang[update.effective_user.id] = "en"
+    await send_photo_or_text(ctx, update.effective_chat.id, "lang.jpg", "Choose language / भाषा चुनें / Выберите язык", markup=kb_lang())
 
-async def callback_language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора языка — далее показываем серию экранов: welcome -> why -> how -> gpt -> register"""
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    lang = query.data.split("_", 1)[1]
+async def choose_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    lang = q.data.split("_")[1]
+    uid = q.from_user.id
     user_lang[uid] = lang
-    t = TEXTS[lang]
+    await q.message.delete()
+    await send_photo_or_text(ctx, uid, "welcome.jpg", TEXTS[lang]["welcome"], markup=kb_next("why"))
 
-    # delete the language selection message
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
+async def step_show(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = q.from_user.id
+    lang = user_lang.get(uid, "en")
+    step = q.data
+    await q.message.delete()
+    seq = {
+        "why": ("why.jpg", TEXTS[lang]["why"], "how"),
+        "how": ("how.jpg", TEXTS[lang]["how"], "about"),
+        "about": ("about.jpg", TEXTS[lang]["about"], "register")
+    }
+    if step in seq:
+        img, txt, nxt = seq[step]
+        await send_photo_or_text(ctx, uid, img, txt, markup=kb_next(nxt))
+    elif step == "register":
+        await send_photo_or_text(ctx, uid, "register.jpg", TEXTS[lang]["register"], markup=kb_register(lang))
 
-    # step sequence: welcome -> why -> how -> gpt -> register
-    # for each step: send photo+text with a keyboard to go to next step
-    msg = await send_stage_photo_or_text(context, uid, "welcome.jpg", t["welcome"], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Next", callback_data="next_welcome")]]))
-    # store message id in user_data to delete later if needed
-    context.user_data["last_msg"] = msg.message_id if msg else None
+async def registered_ok(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = q.from_user.id
+    lang = user_lang.get(uid, "en")
+    await q.message.delete()
+    await ctx.bot.send_message(ADMIN_ID, f"📥 User {uid} ({lang}) registered.")
+    await send_photo_or_text(ctx, uid, "wait.jpg", TEXTS[lang]["limited"])
 
-async def next_welcome_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    lang = user_lang.get(uid, "ru")
-    t = TEXTS[lang]
-
-    # delete previous
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-
-    # show WHY
-    msg = await send_stage_photo_or_text(context, uid, "why.jpg", t["why"], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Next", callback_data="next_why")]]))
-    context.user_data["last_msg"] = msg.message_id if msg else None
-
-async def next_why_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    lang = user_lang.get(uid, "ru")
-    t = TEXTS[lang]
-
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-
-    msg = await send_stage_photo_or_text(context, uid, "how.jpg", t["how"], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Next", callback_data="next_how")]]))
-    context.user_data["last_msg"] = msg.message_id if msg else None
-
-async def next_how_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    lang = user_lang.get(uid, "ru")
-    t = TEXTS[lang]
-
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-
-    msg = await send_stage_photo_or_text(context, uid, "gpt.jpg", t["gpt"], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Next", callback_data="next_gpt")]]))
-    context.user_data["last_msg"] = msg.message_id if msg else None
-
-async def next_gpt_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    lang = user_lang.get(uid, "ru")
-    t = TEXTS[lang]
-
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-
-    # final registration screen
-    msg = await send_stage_photo_or_text(context, uid, "register.jpg", t["register"] + "\n\n" + t["ask_write_admin"], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("OK", callback_data="registered_ok")]]))
-    context.user_data["last_msg"] = msg.message_id if msg else None
-
-    # notify admin automatically about new user (with basic info)
-    try:
-        admin_text = TEXTS[lang]["new_user_admin"].format(
-            uname=(context.bot.get_chat(uid).username or "—"),
-            uid=uid,
-            lang=lang.upper(),
-            time=datetime.utcnow().isoformat()
-        )
-    except Exception:
-        admin_text = f"📥 New user pending: ID {uid}, lang {lang}"
-    # send to admin
-    try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text)
-    except Exception as e:
-        logger.warning("Не удалось отправить уведомление админу: %s", e)
-
-async def registered_ok_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    lang = user_lang.get(uid, "ru")
-    t = TEXTS[lang]
-    # delete message
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-    # tell user that they are pending / limited
-    await send_stage_photo_or_text(context, uid, "register.jpg", t["limited"], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("OK", callback_data="back_home")]]))
-
-# -------------------- Admin commands: allow/revoke/list --------------------
-def ensure_allowed_loaded():
-    if not allowed_users:
-        load_allowed()
-
-async def cmd_allow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/allow <user_id> — admin only"""
-    caller = update.effective_user.id
-    if caller != ADMIN_ID:
-        await update.message.reply_text("❌ Only admin can use this.")
+# ---------- FREE TRIAL ----------
+async def try_free(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = q.from_user.id
+    lang = user_lang.get(uid, "en")
+    n = free_uses.get(uid, 0)
+    if n >= FREE_LIMIT:
+        await q.message.delete()
+        await send_photo_or_text(ctx, uid, "register.jpg", TEXTS[lang]["limited"], markup=kb_register(lang))
         return
-    if not context.args:
-        await update.message.reply_text("Usage: /allow <user_id>")
-        return
+    free_uses[uid] = n + 1
+    save_json(FREE_FILE, free_uses)
+    await q.message.delete()
+    await send_photo_or_text(ctx, uid, "pairs.jpg", TEXTS[lang]["pair"] + f"\n\n{TEXTS[lang]['free_left'].format(n=FREE_LIMIT - free_uses[uid])}", markup=kb_pairs(lang))
+
+# ---------- FORECAST FLOW ----------
+async def get_binance_price(symbol: str):
+    url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}"
     try:
-        uid = int(context.args[0])
-    except Exception:
-        await update.message.reply_text("Invalid id (must be integer).")
-        return
-    ensure_allowed_loaded()
-    allowed_users.add(uid)
-    save_allowed()
-    # notify user
-    lang = user_lang.get(uid, "ru")
-    try:
-        await send_stage_photo_or_text(context, uid, "pairs.jpg", TEXTS[lang]["access_granted"], reply_markup=kb_pairs())
-    except Exception:
-        logger.warning("Не удалось уведомить пользователя о доступе.")
-    await update.message.reply_text(f"✅ User {uid} allowed.")
+        async with aiohttp.ClientSession() as s:
+            async with s.get(url, timeout=5) as r:
+                data = await r.json()
+                return float(data["price"])
+    except:
+        return random.uniform(1, 100)
 
-async def cmd_revoke(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    caller = update.effective_user.id
-    if caller != ADMIN_ID:
-        await update.message.reply_text("❌ Only admin can use this.")
-        return
-    if not context.args:
-        await update.message.reply_text("Usage: /revoke <user_id>")
-        return
-    try:
-        uid = int(context.args[0])
-    except Exception:
-        await update.message.reply_text("Invalid id (must be integer).")
-        return
-    ensure_allowed_loaded()
-    if uid in allowed_users:
-        allowed_users.remove(uid)
-        save_allowed()
-        await update.message.reply_text(f"✅ User {uid} revoked.")
-        try:
-            await send_stage_photo_or_text(context, uid, "register.jpg", TEXTS[user_lang.get(uid, "ru")]["limited"])
-        except Exception:
-            pass
-    else:
-        await update.message.reply_text("User not found in allowed.")
+async def choose_pair(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = q.from_user.id
+    pair = q.data.split("|")[1]
+    ctx.user_data["pair"] = pair
+    await q.message.delete()
+    lang = user_lang.get(uid, "en")
+    await send_photo_or_text(ctx, uid, "tf.jpg", TEXTS[lang]["tf"], markup=kb_tfs(lang))
 
-async def cmd_list_allowed(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    caller = update.effective_user.id
-    if caller != ADMIN_ID:
-        await update.message.reply_text("❌ Only admin can use this.")
-        return
-    ensure_allowed_loaded()
-    if not allowed_users:
-        await update.message.reply_text("No allowed users.")
-        return
-    await update.message.reply_text("Allowed users:\n" + "\n".join(map(str, sorted(allowed_users))))
+async def choose_tf(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = q.from_user.id
+    tf = q.data.split("|")[1]
+    lang = user_lang.get(uid, "en")
+    pair = ctx.user_data.get("pair", "BTCUSDT")
+    await q.message.delete()
 
-# -------------------- Flow: access -> pairs -> timeframes -> analysis --------------------
-async def start_signals_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Optional entrypoint: user requests signals directly (/signals)"""
-    user = update.effective_user
-    uid = user.id
-    lang = user_lang.get(uid, "ru")
-    ensure_allowed_loaded()
-    if uid not in allowed_users:
-        await send_stage_photo_or_text(context, uid, "register.jpg", TEXTS[lang]["limited"])
-        return
-    # delete initial message if any
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-    # show pairs
-    await send_stage_photo_or_text(context, uid, "pairs.jpg", TEXTS[lang]["choose_pair"], reply_markup=kb_pairs())
+    # show animation steps
+    for msg in TEXTS[lang]["processing"]:
+        m = await ctx.bot.send_message(uid, msg)
+        await asyncio.sleep(1.2)
+        await ctx.bot.delete_message(uid, m.message_id)
 
-async def pair_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User clicked a pair"""
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    ensure_allowed_loaded()
-    if uid not in allowed_users:
-        lang = user_lang.get(uid, "ru")
-        await send_stage_photo_or_text(context, uid, "register.jpg", TEXTS[lang]["limited"])
-        return
-    lang = user_lang.get(uid, "ru")
-    pair = query.data.split("|", 1)[1]
-    # delete previous message with keyboard to keep chat clean
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-    context.user_data["chosen_pair"] = pair
-    await send_stage_photo_or_text(context, uid, "timeframes.jpg", TEXTS[lang]["choose_tf"], reply_markup=kb_timeframes())
-
-async def tf_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """User clicked a timeframe -> run animated analysis -> show result"""
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    ensure_allowed_loaded()
-    if uid not in allowed_users:
-        lang = user_lang.get(uid, "ru")
-        await send_stage_photo_or_text(context, uid, "register.jpg", TEXTS[lang]["limited"])
-        return
-    lang = user_lang.get(uid, "ru")
-    tf = query.data.split("|", 1)[1]
-    pair = context.user_data.get("chosen_pair", "—")
-
-    # delete previous keyboard message
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-
-    # ANIMATION SEQUENCE: we will send 3 stage messages (photo+caption) and delete previous to keep chat clean
-    msg1 = await send_stage_photo_or_text(context, uid, "processing1.jpg", TEXTS[lang]["processing_step1"])
-    await asyncio.sleep(0.9 + random.random() * 0.6)
-    # delete previous
-    prev_id = msg1.message_id if msg1 else None
-    msg2 = await send_stage_photo_or_text(context, uid, "processing2.jpg", TEXTS[lang]["processing_step2"], delete_message_id=prev_id)
-    await asyncio.sleep(0.9 + random.random() * 0.6)
-    prev_id = msg2.message_id if msg2 else None
-    msg3 = await send_stage_photo_or_text(context, uid, "processing3.jpg", TEXTS[lang]["processing_step3"], delete_message_id=prev_id)
-    await asyncio.sleep(0.8 + random.random() * 0.8)
-    # final done message (delete previous)
-    prev_id = msg3.message_id if msg3 else None
-    done_msg = await send_stage_photo_or_text(context, uid, "result.jpg", TEXTS[lang]["processing_done"], delete_message_id=prev_id)
-
-    # simple indicator generation (realistic ranges)
-    sma_short = round(random.uniform(0.98, 1.05), 4)
-    sma_long = round(sma_short + random.uniform(-0.02, 0.02), 4)
+    price = await get_binance_price(pair)
     rsi = round(random.uniform(20, 80), 1)
-    macd = round(random.uniform(-0.6, 0.6), 3)
-    vol_trend = random.choice(["increasing", "decreasing", "stable"])
+    macd = round(random.uniform(-0.5, 0.5), 3)
+    conf = random.randint(60, 95)
 
-    # scoring logic (same as раньше — простая, но правдоподобная)
-    score = 0.0
-    if sma_short > sma_long:
-        score += 1.2
-    else:
-        score -= 1.2
-    if rsi < 35:
-        score += 1.0
-    elif rsi > 65:
-        score -= 1.0
-    if macd > 0.02:
-        score += 0.5
-    elif macd < -0.02:
-        score -= 0.5
-    if vol_trend == "increasing":
-        score += 0.3
-    elif vol_trend == "decreasing":
-        score -= 0.3
+    # 🔹 Теперь сигнал и причина — на выбранном языке
+    if lang == "ru":
+        signal = random.choice(["📈 ВВЕРХ", "📉 ВНИЗ"])
+        reason = f"RSI={rsi}, MACD={macd}, цена {price} — тренд {'восходящий' if 'ВВЕРХ' in signal else 'нисходящий'}."
+        new_forecast = "🔁 Новый прогноз"
+    elif lang == "hi":
+        signal = random.choice(["📈 ऊपर", "📉 नीचे"])
+        reason = f"RSI={rsi}, MACD={macd}, मूल्य {price} — रुझान {'ऊपर की ओर' if 'ऊपर' in signal else 'नीचे की ओर'}."
+        new_forecast = "🔁 नया प्रेडिक्शन"
+    else:  # English by default
+        signal = random.choice(["📈 UP", "📉 DOWN"])
+        reason = f"RSI={rsi}, MACD={macd}, price {price} — trend is {'upward' if 'UP' in signal else 'downward'}."
+        new_forecast = "🔁 New forecast"
 
-    if score >= 1.0:
-        signal = "📈 UP"
-    elif score <= -1.0:
-        signal = "📉 DOWN"
-    else:
-        signal = "↔️ NEUTRAL"
+    txt = TEXTS[lang]["result"].format(pair=pair, tf=tf, signal=signal, conf=conf, reason=reason)
 
-    confidence = min(95, max(50, int(50 + abs(score) * 20 + random.randint(-5, 5))))
-
-    # prepare final text
-    header = TEXTS[lang]["result_header"].format(pair=pair, tf=tf)
-    body = TEXTS[lang]["result_body"].format(
-        signal=signal, conf=confidence, sma_s=sma_short, sma_l=sma_long,
-        rsi=rsi, macd=macd, vol=vol_trend
-    )
-    full_text = header + "\n\n" + body
-
-    # send final result with BACK / NEW buttons
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(TEXTS[lang]["back"], callback_data="back_pairs")],
-        [InlineKeyboardButton("🔁 New forecast", callback_data="new_forecast")]
-    ])
-    try:
-        # delete 'done_msg' to keep only final
-        if done_msg:
-            await context.bot.delete_message(chat_id=uid, message_id=done_msg.message_id)
-    except Exception:
-        pass
-
-    await send_stage_photo_or_text(context, uid, "result.jpg", full_text, reply_markup=kb)
-
-    # cleanup chosen_pair
-    context.user_data.pop("chosen_pair", None)
-
-async def back_pairs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    lang = user_lang.get(uid, "ru")
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-    await send_stage_photo_or_text(context, uid, "pairs.jpg", TEXTS[lang]["choose_pair"], reply_markup=kb_pairs())
-
-async def new_forecast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = query.from_user.id
-    # simply restart pair selection
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
-    lang = user_lang.get(uid, "ru")
-    await send_stage_photo_or_text(context, uid, "pairs.jpg", TEXTS[lang]["choose_pair"], reply_markup=kb_pairs())
-
-# -------------------- Дополнительные команды --------------------
-async def cmd_getid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    await update.message.reply_text(f"Your Telegram ID: {uid}")
-
-# -------------------- Main / boot --------------------
-def build_app():
-    load_allowed()
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Commands
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("signals", start_signals_flow))  # quick access
-    app.add_handler(CommandHandler("getid", cmd_getid))
-    app.add_handler(CommandHandler("allow", cmd_allow))
-    app.add_handler(CommandHandler("revoke", cmd_revoke))
-    app.add_handler(CommandHandler("list_allowed", cmd_list_allowed))
-
-    # Language selection & onboarding steps
-    app.add_handler(CallbackQueryHandler(callback_language_chosen, pattern=r"^lang_"))
-    app.add_handler(CallbackQueryHandler(next_welcome_handler, pattern=r"^next_welcome$"))
-    app.add_handler(CallbackQueryHandler(next_why_handler, pattern=r"^next_why$"))
-    app.add_handler(CallbackQueryHandler(next_how_handler, pattern=r"^next_how$"))
-    app.add_handler(CallbackQueryHandler(next_gpt_handler, pattern=r"^next_gpt$"))
-    app.add_handler(CallbackQueryHandler(registered_ok_handler, pattern=r"^registered_ok$"))
-
-    # Signal flow
-    app.add_handler(CallbackQueryHandler(pair_callback, pattern=r"^pair\|"))
-    app.add_handler(CallbackQueryHandler(tf_callback, pattern=r"^tf\|"))
-    app.add_handler(CallbackQueryHandler(back_pairs_callback, pattern=r"^back_pairs$"))
-    app.add_handler(CallbackQueryHandler(new_forecast_callback, pattern=r"^new_forecast$"))
-
-    # small helpers: back_home
-    app.add_handler(CallbackQueryHandler(lambda u, c: send_stage_photo_or_text(c, u.callback_query.from_user.id, "welcome.jpg", TEXTS[user_lang.get(u.callback_query.from_user.id, 'ru')]["welcome"], reply_markup=kb_welcome_actions(user_lang.get(u.callback_query.from_user.id, 'ru'))), pattern=r"^back_home$"))
-
-    return app
-
+    await send_photo_or_text(
+        ctx,
+        uid,
+        "result.jpg",
+        txt,
+        markup=InlineKeyboardMarkup([[InlineKeyboardButton(new_forecast, callback_data="try_free")]])
+        )
+# ---------- MAIN ----------
 def main():
-    if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN not set in environment or .env")
-    load_allowed()
-    app = build_app()
-    logger.info("Bot starting...")
+    global allowed, free_uses
+    allowed = set(load_json(ALLOWED_FILE, []))
+    free_uses = load_json(FREE_FILE, {})
+
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("allow", cmd_allow))
+    app.add_handler(CallbackQueryHandler(choose_lang, pattern="^lang_"))
+    app.add_handler(CallbackQueryHandler(step_show, pattern="^(why|how|about|register)$"))
+    app.add_handler(CallbackQueryHandler(registered_ok, pattern="^registered_ok$"))
+    app.add_handler(CallbackQueryHandler(try_free, pattern="^try_free$"))
+    app.add_handler(CallbackQueryHandler(choose_pair, pattern="^pair\\|"))
+    app.add_handler(CallbackQueryHandler(choose_tf, pattern="^tf\\|"))
+
+    print("Bot started...")
     app.run_polling()
 
 if __name__ == "__main__":
