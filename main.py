@@ -319,7 +319,8 @@ async def healthcheck(request):
 def start_webserver():
     app = web.Application()
     app.add_routes([web.get("/", healthcheck)])
-    web.run_app(app, port=int(os.environ.get("PORT", 10000)))
+    web.run_app(app, port=int(os.environ.get("PORT", 10000)), handle_signals=False)
+
 
 threading.Thread(target=start_webserver, daemon=True).start()
 
